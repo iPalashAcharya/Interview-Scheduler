@@ -43,4 +43,4 @@ router.get('/:id/timeslots', (req, res) => {
     res.json(timeSlots);
 });
 
-module.exports = { router, timeSlots, interviewers };
+module.exports = router;

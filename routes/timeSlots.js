@@ -8,3 +8,5 @@ router.put('/:id', (req, res) => {
     const existingSlot = timeSlots.find(slot => slot.id === slotId);
     //update the time slot here
 });
+
+module.exports = router;

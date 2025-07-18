@@ -1,51 +1,24 @@
 const express = require('express');
 const router = express.Router();
-const { applications } = require('./applications');
-const { timeSlots } = require('./interviewers');
+const db = require('../db');
 
-function searchArrayOfObjects(arrayOfObjects, searchObject) {
-    return arrayOfObjects.filter(item => {
-        for (const key in searchObject) {
-            if (searchObject.hasOwnProperty(key)) {
-                if (item[key] === undefined || item[key] !== searchObject[key]) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    });
-}
-
-router.get('/', (req, res) => {
-    const { status, jobId, domainId } = req.query;
-    filters = {};
-    if (status) filters.status = status;
-    if (jobId) filters.jobId = jobId;
-    if (domainId) filters.domainId = domainId;
-    const candidates = searchArrayOfObjects(applications, filters);
+router.get('/', async (req, res) => {
+    const [candidates] = await db.query("SELECT * FROM candidate LEFT JOIN users ON users.id=candidate.id"); //square brackets to just get the actual data and not the metadata about the fields
     res.json(candidates);
 });
 
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
     const candidateId = req.params.id;
-    const candidate = applications.find(candidate => candidate.id === candidateId);
+    const [candidate] = await db.query("SELECT * FROM candidate LEFT JOIN users ON users.id=candidate.id WHERE candidate.id=?", [candidateId]);
     res.json(candidate);
 });
 
-router.post('/:id/timeslots', (req, res) => {
-    const interviewerId = req.params.id;
-    let timeSlot = req.body;
-    timeSlot.interviewer_id = interviewerId;
-    timeSlots.push(timeSlot);
-    res.status(201).send("Created availaibility time slot");
-});
-
-router.put('/:id/status', (req, res) => {
+/*router.put('/:id/status', (req, res) => {
     const candidateId = req.params.id;
     const status = req.body.status;
     let candidate = candidates.find(candidate => candidate.id === candidateId);
     candidate.status = status;
     res.status(201).send(`Status Updated to ${status}`);
-});
+});*/
 
 module.exports = router;

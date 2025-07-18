@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { applications } = require('./applications');
-const { interviewers, interviewers } = require('./interviewers');
+const axios = require('axios');
+const db = require('../db');
+
+const API_URL = 'http://localhost:3000'
 
 let interviewMappings = [{
     id: 1,
@@ -12,13 +14,22 @@ let interviewMappings = [{
     status: 'scheduled',
 }]
 
-function getMatchingInterviewers(candidateId) {
-    const candidate = applications.find(candidate => candidate.id === candidateId);
-    const domain_id = candidate.applied_domain_id;
-    const interviewers = interviewers.filter(interviewer => interviewer.domain_expertise_id === domain_id);
-    return interviewers;
-}
-
+router.get('/schedule/:id', async (req, res) => {
+    const candidateId = parseInt(req.params.id);
+    try {
+        const [candidateRows] = await db.query("SELECT candidate_id, d.name, rt.round_type FROM application LEFT JOIN interview_round rt ON application.stage_id=rt.id LEFT JOIN domain d ON application.applied_domain_id=d.id WHERE application.candidate_id=?;", [candidateId]);
+        if (candidateRows.length === 0) {
+            return res.status(404).json({ error: "Candidate Not Found" });
+        }
+        const candidate = candidateRows[0];
+        const candidateDomain = candidate.name;
+        const [appropriate_interviewers] = await db.query("SELECT id.interviewer_id, i.name FROM interviewer_domain id LEFT JOIN domain d ON id.domain_id = d.id LEFT JOIN interviewer i ON id.interviewer_id = i.id WHERE d.name = ?;", [candidateDomain]);
+        res.json(appropriate_interviewers);
+    }
+    catch (error) {
+        console.log(error);
+    }
+});
 
 router.post('/', (req, res) => {
     const interviewMapping = req.body;

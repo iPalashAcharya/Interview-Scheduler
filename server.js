@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use('/candidates', candidateRoutes);
 app.use('/jobs', jobOpeningRoutes);
-app.use('/applications', applicationRoutes.router);
+app.use('/applications', applicationRoutes);
 app.use('/interviewers', interviewerRoutes);
 app.use('/interviews', interviewRoutes);
 app.use('/timeslots', timeSlotRoutes);

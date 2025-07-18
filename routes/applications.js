@@ -21,4 +21,4 @@ router.put('/:id/shortlist', (req, res) => {
     res.status(201).send("Shortlisted Application");
 });
 
-module.exports = { router, applications };
+module.exports = router;
