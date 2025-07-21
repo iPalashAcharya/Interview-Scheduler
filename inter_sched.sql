@@ -159,3 +159,26 @@ CREATE TABLE interview_round(
 	duration_minutes INT DEFAULT 60,
 	round_type ENUM('technical','hr','managerial','cultural','coding','system_design') NOT NULL
 );
+CREATE TABLE interviewer_round (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    interviewer_id INT NOT NULL,
+    round_type_id INT NOT NULL,
+    FOREIGN KEY (interviewer_id) REFERENCES interviewer(id) ON DELETE CASCADE,
+	FOREIGN KEY (round_type_id) REFERENCES interview_round(id),
+    UNIQUE KEY unique_interviewer_round (interviewer_id, round_type_id)
+);
+
+CREATE TABLE candidate_slot_choice (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    mapping_id INT NOT NULL,          -- interview_mapping row
+    candidate_id INT NOT NULL,
+    slot_id INT NOT NULL,
+    chosen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (mapping_id) REFERENCES interview_mapping(id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_id) REFERENCES candidate(id)   ON DELETE CASCADE,
+    FOREIGN KEY (slot_id) REFERENCES time_slot(id)        ON DELETE CASCADE,
+    UNIQUE KEY u_candidate_round (candidate_id, mapping_id)
+);
+
+ALTER TABLE time_slot ADD COLUMN slot_status 
+ENUM('free','tentative','booked') DEFAULT 'free';
