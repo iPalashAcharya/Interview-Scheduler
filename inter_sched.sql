@@ -182,3 +182,15 @@ CREATE TABLE candidate_slot_choice (
 
 ALTER TABLE time_slot ADD COLUMN slot_status 
 ENUM('free','tentative','booked') DEFAULT 'free';
+
+CREATE TABLE interview_session(
+	id INT AUTO_INCREMENT PRIMARY KEY,
+	slot_id INT NOT NULL,
+	mapping_id INT NOT NULL,
+	session_start DATETIME,
+	session_end DATETIME,
+	FOREIGN KEY (slot_id) REFERENCES time_slot(id),
+	FOREIGN KEY (mapping_id) REFERENCES interview_mapping(id),
+	UNIQUE(mapping_id),
+	UNIQUE (slot_id,session_start)
+);

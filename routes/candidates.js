@@ -12,10 +12,14 @@ router.get('/:id', async (req, res) => {
     const [candidate] = await db.query("SELECT * FROM candidate LEFT JOIN users ON users.id=candidate.id WHERE candidate.id=?", [candidateId]);
     res.json(candidate);
 });
-
+//request body
+/*{
+  "mappingId": 42,
+  "sessionId": 90
+}*/
 router.post('/candidates/:candidateId/slot-choice', async (req, res) => {
     const candidateId = parseInt(req.params.candidateId);
-    const { mappingId, slotId } = req.body;
+    const { mappingId, sessionId } = req.body;
 
     const conn = await db.getConnection();
     try {
@@ -33,31 +37,52 @@ router.post('/candidates/:candidateId/slot-choice', async (req, res) => {
             throw new Error("Invalid mapping or unauthorized candidate.");
         }
 
-        const [[slot]] = await conn.execute(
-            `SELECT slot_status FROM time_slot WHERE id = ? FOR UPDATE`,
-            [slotId]
-        );
+        const [[session]] = await conn.execute(`
+        SELECT s.id, s.slot_id, s.session_start, s.session_end, ts.slot_status
+        FROM interview_session s
+        JOIN time_slot ts ON ts.id = s.slot_id
+        WHERE s.id = ? AND s.mapping_id = ?
+        FOR UPDATE
+        `, [sessionId, mappingId]);
 
-        if (!slot) throw new Error("Selected time slot does not exist.");
-        if (slot.slot_status !== "tentative") {
-            throw new Error("Time slot is no longer available.");
+        if (!session) throw new Error("Selected session not found.");
+        if (session.slot_status !== "tentative") {
+            throw new Error("Session slot is no longer available.");
         }
-        // 3. Assign slot to mapping — treat this as confirmation
+
+        await conn.execute(`
+        INSERT INTO candidate_slot_choice
+        (mapping_id, candidate_id, slot_id, session_start, session_end)
+        VALUES (?, ?, ?, ?, ?)
+        `, [
+            mappingId,
+            candidateId,
+            session.slot_id,
+            session.session_start,
+            session.session_end,
+        ]);
+
         await conn.execute(`
         UPDATE interview_mapping
-        SET slot_id = ?, status = 'confirmed', candidate_confirmed = TRUE
+        SET status = 'confirmed', candidate_confirmed = TRUE
         WHERE id = ?
-        `, [slotId, mappingId]);
+        `, [mappingId]);
 
-        // 4. Mark the slot as booked
-        await conn.execute(
-            `UPDATE time_slot SET slot_status = 'booked' WHERE id = ?`,
-            [slotId]
-        );
+        // 4. Mark time slot as booked
+        await conn.execute(`
+        UPDATE time_slot SET slot_status = 'booked' WHERE id = ?
+        `, [session.slot_id]);
 
         await conn.commit();
 
-        res.json({ message: 'Slot confirmed. Interview scheduled.' });
+        res.json({
+            message: 'Session confirmed. Interview scheduled.',
+            session: {
+                sessionId: sessionId,
+                start: session.session_start,
+                end: session.session_end
+            }
+        });
     } catch (err) {
         await conn.rollback();
         console.error("Candidate slot choice error:", err.message);

@@ -66,7 +66,7 @@ router.get('/recommend', async (req, res) => {
         const domain = applications[0].domain_id;
         const round = applications[0].round_type_id;
 
-        const [rows] = await db.execute(`
+        const [interviewers] = await db.execute(`
         SELECT i.id, i.name,
         SUM(
             FLOOR(
@@ -83,19 +83,42 @@ router.get('/recommend', async (req, res) => {
             AND im.status IN ('scheduled','confirmed')
             AND im.slot_id = ts.id)
         GROUP BY i.id
-        HAVING available_sessions >= ?
         ORDER BY available_sessions DESC
         LIMIT 5;
-        `, [interviewWithBuffer, domain, round, candidateNumber]);
-        res.json(rows);
+        `, [interviewWithBuffer, domain, round]);
+        let assignableInterviewers = [];
+        let remainingCandidates = candidateNumber;
+
+        for (const interviewer of interviewers) {
+            if (remainingCandidates <= 0) break;
+            assignableInterviewers.push(interviewer);
+            remainingCandidates -= interviewer.available_sessions;
+        }
+
+        if (remainingCandidates > 0) {
+            return res.status(400).json({
+                error: 'Insufficient capacity to cover all candidates',
+                needed: candidateNumber,
+                available: candidateNumber - remainingCandidates
+            });
+        }
+
+        res.json({
+            interviewers: assignableInterviewers.map(i => ({
+                interviewerId: i.id,
+                name: i.name,
+                capacity: i.available_sessions
+            }))
+        });
+
     } catch (error) {
         console.error("Error recommending interviewers:", error);
         res.status(500).json({ error: "Internal server error" });
     }
 });
 
-router.post('/assign', async (req, res) => {
-    const { interviewerId, candidateIds, stageId } = req.body;
+/*router.post('/assign', async (req, res) => {
+    const { interviewers, candidateIds, stageId } = req.body;
     const numCandidates = candidateIds.length;
 
     const [[round]] = await db.execute(`
@@ -107,6 +130,7 @@ router.post('/assign', async (req, res) => {
 
     const conn = await db.getConnection();
     try {
+        await conn.beginTransaction();
         const [slots] = await conn.execute(`
         SELECT id, slot_start, slot_end
         FROM time_slot
@@ -175,7 +199,128 @@ router.post('/assign', async (req, res) => {
     } finally {
         conn.release();
     }
+});*/
+
+//request body
+/*{
+    "interviewers": [
+        { "interviewerId": 3, "capacity": 3 },
+        { "interviewerId": 5, "capacity": 2 }
+    ],
+        "candidateIds": [101, 102, 103, 104, 105],
+            "stageId": 1
+}*/
+router.post("/assign", async (req, res) => {
+    const { interviewers, candidateIds, stageId } = req.body;
+
+    const [[round]] = await db.execute(
+        `SELECT duration_minutes FROM interview_round WHERE id = ?`,
+        [stageId]
+    );
+    const duration = round.duration_minutes;
+    const bufferTime = 10;
+    const sessionLength = duration + bufferTime;
+
+    const conn = await db.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        let candidateQueue = [...candidateIds];
+        const assignments = [];
+
+        for (const { interviewerId, capacity } of interviewers) {
+            if (candidateQueue.length === 0) {
+                throw new Error(`No candidates provided`);
+            }
+            const [slots] = await conn.execute(
+                `SELECT id, slot_start, slot_end
+            FROM time_slot
+            WHERE user_id = ? AND slot_status = 'free'
+            ORDER BY slot_start
+            FOR UPDATE`,
+                [interviewerId]
+            );
+
+            let sessions = [];
+            for (const slot of slots) {
+                let cursor = new Date(slot.slot_start);
+                const end = new Date(slot.slot_end);
+
+
+                //continue assigning timeslots to candidates until the timeslot still has time
+                while (cursor.getTime() + sessionLength * 60000 <= end.getTime()) {
+                    sessions.push({
+                        slotId: slot.id,
+                        start: new Date(cursor),
+                        end: new Date(cursor.getTime() + duration * 60000),
+                    });
+                    cursor = new Date(cursor.getTime() + sessionLength * 60000);
+                    if (sessions.length >= capacity) break; //timeslot full
+                }
+                if (sessions.length >= capacity) break; //extra check
+            }
+
+            if (sessions.length < capacity && sessions.length < candidateQueue.length) {
+                throw new Error(
+                    `Not enough available sessions for interviewer ${interviewerId}`
+                );
+            }
+
+            for (let i = 0; i < sessions.length && candidateQueue.length > 0; i++) {
+                const candidateId = candidateQueue.shift();
+                const session = sessions[i];
+
+                const [[appRow]] = await conn.execute(
+                    `SELECT id FROM application WHERE candidate_id = ? AND stage_id = ? LIMIT 1`,
+                    [candidateId, stageId]
+                );
+                if (!appRow) throw new Error(`Application not found for candidate ${candidateId}`);
+
+                const [interviewMapping] = await conn.execute(
+                    `INSERT INTO interview_mapping
+                (application_id, interviewer_id, slot_id, round_id, status)
+                VALUES (?, ?, ?, ?, 'scheduled')`,
+                    [appRow.id, interviewerId, session.slotId, stageId]
+                );
+
+                await conn.execute(
+                    `UPDATE time_slot SET slot_status = 'tentative' WHERE id = ?`,
+                    [session.slotId]
+                );
+
+                await conn.execute(
+                    `INSERT INTO interview_session
+                    (slot_id,mapping_id,session_start,session_end)
+                    VALUES(? ? ? ?)`,
+                    [session.slotId, interviewMapping.insertId, session.start, session.end]);
+                assignments.push({
+                    candidateId,
+                    interviewerId,
+                    slotId: session.slotId,
+                    session_start: session.start,
+                    session_end: session.end,
+                });
+            }
+        }
+
+        if (candidateQueue.length > 0) {
+            throw new Error(`Could not assign ${candidateQueue.length} candidates due to insufficient capacity.`);
+        }
+
+        await conn.commit();
+        res.json({
+            message: "Tentative sessions assigned and dispatched.",
+            assignments,
+        });
+    } catch (error) {
+        await conn.rollback();
+        console.error("Error assigning sessions:", error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        conn.release();
+    }
 });
+
 
 router.post('/', (req, res) => {
     const interviewMapping = req.body;
