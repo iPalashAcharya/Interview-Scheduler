@@ -9,6 +9,7 @@ const timeSlotRoutes = require('./routes/timeSlots');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(express.json());
 app.use('/candidates', candidateRoutes);
 app.use('/jobs', jobOpeningRoutes);
 app.use('/applications', applicationRoutes);

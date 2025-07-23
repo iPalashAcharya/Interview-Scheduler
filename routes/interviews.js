@@ -14,7 +14,7 @@ let interviewMappings = [{
     status: 'scheduled',
 }]
 
-router.get('/schedule/:id', async (req, res) => {
+/*router.get('/recommend/:id', async (req, res) => {
     const candidateId = parseInt(req.params.id);
     try {
         const [candidateRows] = await db.execute("SELECT candidate_id, d.name, rt.round_type FROM application LEFT JOIN interview_round rt ON application.stage_id=rt.id LEFT JOIN domain d ON application.applied_domain_id=d.id WHERE application.candidate_id=?;", [candidateId]);
@@ -32,22 +32,82 @@ router.get('/schedule/:id', async (req, res) => {
     catch (error) {
         console.log(error);
     }
+});*/
+router.get('/recommend/:candidateId', async (req, res) => {
+    const candidateId = parseInt(req.params.candidateId);
+
+    try {
+        const [[candidate]] = await db.execute(`
+        SELECT a.candidate_id, d.id AS domain_id, d.name AS domain_name,
+            ir.id AS round_id, ir.round_type
+        FROM application a
+        JOIN domain d ON a.applied_domain_id = d.id
+        JOIN interview_round ir ON a.stage_id = ir.id
+        WHERE a.candidate_id = ?
+        `, [candidateId]);
+
+        if (!candidate) {
+            return res.status(404).json({ error: "Candidate not found or no round assigned." });
+        }
+
+        const { domain_id, round_type } = candidate;
+
+        const [interviewers] = await db.execute(`
+        SELECT i.id AS interviewer_id, i.name, COUNT(ts.id) AS free_slots
+        FROM interviewer i
+        JOIN interviewer_domain idom ON idom.interviewer_id = i.id AND idom.domain_id = ?
+        JOIN interviewer_round ir ON ir.interviewer_id = i.id AND ir.round_type = ?
+        LEFT JOIN time_slot ts ON ts.user_id = i.id AND ts.slot_status = 'free'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM interview_mapping im
+            WHERE im.interviewer_id = i.id
+            AND im.slot_id = ts.id
+            AND im.status IN ('scheduled','confirmed')
+        )
+        GROUP BY i.id
+        ORDER BY free_slots DESC
+        LIMIT 5
+        `, [domain_id, round_type]);
+
+        if (!interviewers.length) {
+            return res.status(200).json({ message: "No matching interviewers available currently." });
+        }
+
+        res.json({
+            candidate: {
+                id: candidate.candidate_id,
+                domain: candidate.domain_name,
+                round: candidate.round_type
+            },
+            recommendedInterviewers: interviewers.map(intv => ({
+                interviewerId: intv.interviewer_id,
+                name: intv.name,
+                freeSlots: intv.free_slots
+            }))
+        });
+
+    } catch (error) {
+        console.error("Error in /recommend/:candidateId →", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
 });
 
-//GET /recommend?candidates=1,2&stage=3
-router.get('/recommend', async (req, res) => {
+//POST /recommend?candidates=1,2&stage=3
+router.post('/recommend', async (req, res) => {
     try {
-        const candidateIds = req.query.candidates.split(',').map(Number);
-        const stageId = parseInt(req.query.stage);
+        const candidateIds = req.body.candidates.split(',').map(Number);
+        const stageId = parseInt(req.body.stage);
         const candidateNumber = candidateIds.length;
 
-        const [applications] = await db.execute(`
+        const placeholders = candidateIds.map(() => '?').join(','); // safely handles any number of candidates
+        const sql = `
         SELECT a.candidate_id, a.applied_domain_id AS domain_id,
-        ir.id AS round_type_id, ir.duration_minutes
+                ir.id AS round_type_id, ir.duration_minutes
         FROM application a
         JOIN interview_round ir ON ir.id = ?
-        WHERE a.candidate_id IN (?)
-        `, [stageId, candidateIds]);
+        WHERE a.candidate_id IN (${placeholders})`;
+
+        const [applications] = await db.execute(sql, [stageId, ...candidateIds]);
 
         if (!applications.length) {
             return res.status(400).json({ error: 'Candidates do not share same round' });
@@ -68,19 +128,19 @@ router.get('/recommend', async (req, res) => {
 
         const [interviewers] = await db.execute(`
         SELECT i.id, i.name,
-        SUM(
-            FLOOR(
-               TIMESTAMPDIFF(MINUTE, ts.slot_start, ts.slot_end) / ?
+            SUM(
+                FLOOR(
+                    TIMESTAMPDIFF(MINUTE, ts.slot_start, ts.slot_end) / ?
             )
-        ) AS available_sessions
+            ) AS available_sessions
         FROM interviewer i
-        JOIN interviewer_domain d ON d.interviewer_id=i.id AND d.domain_id=?
-        JOIN interviewer_round  r ON r.interviewer_id=i.id AND r.round_type_id=?
-        JOIN time_slot ts ON ts.user_id=i.id AND ts.slot_status = 'free'
+        JOIN interviewer_domain d ON d.interviewer_id = i.id AND d.domain_id =?
+            JOIN interviewer_round  r ON r.interviewer_id = i.id AND r.round_type_id =?
+                JOIN time_slot ts ON ts.user_id = i.id AND ts.slot_status = 'free'
         WHERE NOT EXISTS(
-            SELECT 1 FROM interview_mapping im
-            WHERE im.interviewer_id=i.id
-            AND im.status IN ('scheduled','confirmed')
+                    SELECT 1 FROM interview_mapping im
+            WHERE im.interviewer_id = i.id
+            AND im.status IN('scheduled', 'confirmed')
             AND im.slot_id = ts.id)
         GROUP BY i.id
         ORDER BY available_sessions DESC
@@ -89,7 +149,7 @@ router.get('/recommend', async (req, res) => {
         let assignableInterviewers = [];
         let remainingCandidates = candidateNumber;
 
-        for (const interviewer of interviewers) {
+        /*for (const interviewer of interviewers) {
             if (remainingCandidates <= 0) break;
             assignableInterviewers.push(interviewer);
             remainingCandidates -= interviewer.available_sessions;
@@ -107,8 +167,23 @@ router.get('/recommend', async (req, res) => {
             interviewers: assignableInterviewers.map(i => ({
                 interviewerId: i.id,
                 name: i.name,
-                capacity: i.available_sessions
+                free_slots: i.available_sessions
             }))
+        });*/
+        for (const interviewer of interviewers) {
+            if (remainingCandidates <= 0) break;
+            assignableInterviewers.push({
+                ...interviewer,
+                assignedCapacity: Math.min(interviewer.available_sessions, remainingCandidates)
+            });
+            remainingCandidates -= interviewer.available_sessions;
+        }
+
+        res.json({
+            fullCoverage: remainingCandidates <= 0,
+            needed: candidateNumber,
+            coverage: candidateNumber - remainingCandidates,
+            interviewers: assignableInterviewers
         });
 
     } catch (error) {
@@ -123,7 +198,7 @@ router.get('/recommend', async (req, res) => {
 
     const [[round]] = await db.execute(`
     SELECT duration_minutes FROM interview_round WHERE id = ?
-  `, [stageId]);
+            `, [stageId]);
     const duration = round.duration_minutes;
     const bufferTime = 10;
     const sessionLength = duration + bufferTime;
@@ -135,7 +210,7 @@ router.get('/recommend', async (req, res) => {
         SELECT id, slot_start, slot_end
         FROM time_slot
         WHERE user_id = ?
-        AND is_booked = FALSE
+            AND is_booked = FALSE
         ORDER BY slot_start
         FOR UPDATE
         `, [interviewerId]);
@@ -176,10 +251,10 @@ router.get('/recommend', async (req, res) => {
             await conn.execute(`
             INSERT INTO interview_mapping
             (application_id, interviewer_id, slot_id, round_id, status)
-            VALUES (?, ?, ?, ?, 'scheduled')
+        VALUES(?, ?, ?, ?, 'scheduled')
             `, [appRow.id, interviewerId, session.slotId, stageId]);
 
-            await conn.execute(`UPDATE time_slot SET slot_status='tentative' WHERE id=?`, [session.slotId]);
+            await conn.execute(`UPDATE time_slot SET slot_status = 'tentative' WHERE id =? `, [session.slotId]);
         }
         await conn.commit();
         res.json({
@@ -214,7 +289,7 @@ router.post("/assign", async (req, res) => {
     const { interviewers, candidateIds, stageId } = req.body;
 
     const [[round]] = await db.execute(
-        `SELECT duration_minutes FROM interview_round WHERE id = ?`,
+        `SELECT duration_minutes FROM interview_round WHERE id = ? `,
         [stageId]
     );
     const duration = round.duration_minutes;
@@ -278,20 +353,20 @@ router.post("/assign", async (req, res) => {
 
                 const [interviewMapping] = await conn.execute(
                     `INSERT INTO interview_mapping
-                (application_id, interviewer_id, slot_id, round_id, status)
-                VALUES (?, ?, ?, ?, 'scheduled')`,
+            (application_id, interviewer_id, slot_id, round_id, status)
+        VALUES(?, ?, ?, ?, 'scheduled')`,
                     [appRow.id, interviewerId, session.slotId, stageId]
                 );
 
                 await conn.execute(
-                    `UPDATE time_slot SET slot_status = 'tentative' WHERE id = ?`,
+                    `UPDATE time_slot SET slot_status = 'tentative' WHERE id = ? `,
                     [session.slotId]
                 );
 
                 await conn.execute(
                     `INSERT INTO interview_session
-                    (slot_id,mapping_id,session_start,session_end)
-                    VALUES(? ? ? ?)`,
+            (slot_id, mapping_id, session_start, session_end)
+        VALUES(?, ?, ?, ?)`,
                     [session.slotId, interviewMapping.insertId, session.start, session.end]);
                 assignments.push({
                     candidateId,

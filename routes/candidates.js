@@ -3,13 +3,21 @@ const router = express.Router();
 const db = require('../db');
 
 router.get('/', async (req, res) => {
-    const [candidates] = await db.query("SELECT * FROM candidate LEFT JOIN users ON users.id=candidate.id"); //square brackets to just get the actual data and not the metadata about the fields
+    const [candidates] = await db.execute("SELECT a.candidate_id,a.application_number,a.name,a.phone,a.email,a.current_location,a.status,a.stage_id, ir.name, jop.title AS job_role,i.name AS interviewer_assigned FROM application a LEFT JOIN job_opening jop ON a.applied_domain_id=jop.id LEFT JOIN interview_round ir ON a.stage_id=ir.id LEFT JOIN interview_mapping im ON im.application_id=a.id LEFT JOIN interviewer i ON i.id=im.interviewer_id WHERE a.status='shortlisted'"); //square brackets to just get the actual data and not the metadata about the fields
+    for (const candidate of candidates) {
+        if (candidate.status === "shortlisted") {
+            candidate.status = "pending";
+        }
+    }
     res.json(candidates);
 });
 
 router.get('/:id', async (req, res) => {
     const candidateId = req.params.id;
-    const [candidate] = await db.query("SELECT * FROM candidate LEFT JOIN users ON users.id=candidate.id WHERE candidate.id=?", [candidateId]);
+    const [candidate] = await db.execute("SELECT a.candidate_id, a.application_number, a.name, a.phone, a.email, a.current_location, a.status,a.skills,a.applied_at,ir.name, jop.title AS job_role, i.name AS interviewer_assigned, c.resume_url, s.session_start AS interview_date FROM application a LEFT JOIN job_opening jop ON a.applied_domain_id = jop.id LEFT JOIN interview_round ir ON a.stage_id = ir.id LEFT JOIN interview_mapping im ON im.application_id = a.id LEFT JOIN interviewer i ON i.id = im.interviewer_id LEFT JOIN interview_session s ON s.mapping_id=im.id LEFT JOIN candidate c on a.candidate_id=c.id WHERE a.candidate_id=?", [candidateId]);
+    if (candidate.status === "shortlisted") {
+        candidate.status = "pending";
+    }
     res.json(candidate);
 });
 //request body
@@ -17,7 +25,7 @@ router.get('/:id', async (req, res) => {
   "mappingId": 42,
   "sessionId": 90
 }*/
-router.post('/candidates/:candidateId/slot-choice', async (req, res) => {
+router.post('/candidates/slot-choice/:candidateId', async (req, res) => {
     const candidateId = parseInt(req.params.candidateId);
     const { mappingId, sessionId } = req.body;
 

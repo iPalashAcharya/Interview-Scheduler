@@ -194,3 +194,32 @@ CREATE TABLE interview_session(
 	UNIQUE(mapping_id),
 	UNIQUE (slot_id,session_start)
 );
+
+ALTER TABLE users ADD COLUMN first_name VARCHAR(50);
+
+ALTER TABLE users ADD COLUMN last_name VARCHAR(50);
+
+ALTER TABLE users ADD CONSTRAINT UNIQUE (username,email);
+
+SET GLOBAL event_scheduler = ON;
+CREATE EVENT IF NOT EXISTS delete_expired_slots
+ON SCHEDULE EVERY 1 HOUR
+DO
+  DELETE FROM time_slot
+  WHERE slot_end < NOW();
+
+ALTER TABLE interview_session
+DROP FOREIGN KEY interview_session_ibfk_1,
+DROP FOREIGN KEY interview_session_ibfk_2;
+
+ALTER TABLE interview_session
+ADD CONSTRAINT fk_session_slot
+  FOREIGN KEY (slot_id) REFERENCES time_slot(id) ON DELETE CASCADE,
+ADD CONSTRAINT fk_session_mapping
+  FOREIGN KEY (mapping_id) REFERENCES interview_mapping(id) ON DELETE CASCADE;
+
+ALTER TABLE candidate DROP COLUMN skills;
+
+ALTER TABLE application ADD COLUMN skills TEXT;
+
+ALTER TABLE application ADD COLUMN applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
