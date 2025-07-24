@@ -1,6 +1,7 @@
 const express = require('express');
 const session = require('express-session');
 const env = require('dotenv');
+const cors = require('cors');
 const MySQLStore = require('express-mysql-session')(session);
 const { passport } = require('./config/passport');
 const candidateRoutes = require('./routes/candidates');
@@ -16,6 +17,7 @@ env.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cors());
 app.set('trust proxy', true);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
