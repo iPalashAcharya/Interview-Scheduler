@@ -65,4 +65,4 @@ yarn-error.log*
 .Spotlight-V100
 .Trashes
 Icon?
-._*
+secrets/ca.pem

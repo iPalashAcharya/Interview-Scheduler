@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const { requireAdmin } = require('../config/passport');
 
-router.post('/', (req, res) => {
+router.post('/', requireAdmin, (req, res) => {
     const application = req.body;
     applications.push(application);
     res.status(201).send("Created application");
