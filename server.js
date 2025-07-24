@@ -1,15 +1,52 @@
 const express = require('express');
+const session = require('express-session');
+const env = require('dotenv');
+const MySQLStore = require('express-mysql-session')(session);
+const { passport } = require('./config/passport');
 const candidateRoutes = require('./routes/candidates');
 const jobOpeningRoutes = require('./routes/jobs');
 const applicationRoutes = require('./routes/applications');
 const interviewerRoutes = require('./routes/interviewers');
 const interviewRoutes = require('./routes/interviews');
 const timeSlotRoutes = require('./routes/timeSlots');
+const authRoutes = require('./routes/auth');
+const adminRoutes = require('./routes/admin');
 
+env.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.set('trust proxy', true);
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+const options = {
+    host: process.env.DB_HOST,
+    port: 3306,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE
+};
+
+const sessionStore = new MySQLStore(options);
+
+app.use(session({
+    store: sessionStore,
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: false,
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000
+    }
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.use('/admin', adminRoutes);
+app.use('/auth', authRoutes);
 app.use('/candidates', candidateRoutes);
 app.use('/jobs', jobOpeningRoutes);
 app.use('/applications', applicationRoutes);

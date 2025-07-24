@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../db');
-
+const { requireAdmin } = require('../config/passport');
 const API_URL = 'http://localhost:3000'
 
 let interviewMappings = [{
@@ -33,7 +33,7 @@ let interviewMappings = [{
         console.log(error);
     }
 });*/
-router.get('/recommend/:candidateId', async (req, res) => {
+router.get('/recommend/:candidateId', requireAdmin, async (req, res) => {
     const candidateId = parseInt(req.params.candidateId);
 
     try {
@@ -93,7 +93,7 @@ router.get('/recommend/:candidateId', async (req, res) => {
 });
 
 //POST /recommend?candidates=1,2&stage=3
-router.post('/recommend', async (req, res) => {
+router.post('/recommend', requireAdmin, async (req, res) => {
     try {
         const candidateIds = req.body.candidates.split(',').map(Number);
         const stageId = parseInt(req.body.stage);
@@ -285,7 +285,7 @@ router.post('/recommend', async (req, res) => {
         "candidateIds": [101, 102, 103, 104, 105],
             "stageId": 1
 }*/
-router.post("/assign", async (req, res) => {
+router.post("/assign", requireAdmin, async (req, res) => {
     const { interviewers, candidateIds, stageId } = req.body;
 
     const [[round]] = await db.execute(

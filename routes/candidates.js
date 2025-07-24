@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { requireAdmin, requireAuth } = require('../config/passport');
 
-router.get('/', async (req, res) => {
+router.get('/', requireAdmin, async (req, res) => {
     const [candidates] = await db.execute("SELECT a.candidate_id,a.application_number,a.name,a.phone,a.email,a.current_location,a.status,a.stage_id, ir.name, jop.title AS job_role,i.name AS interviewer_assigned FROM application a LEFT JOIN job_opening jop ON a.applied_domain_id=jop.id LEFT JOIN interview_round ir ON a.stage_id=ir.id LEFT JOIN interview_mapping im ON im.application_id=a.id LEFT JOIN interviewer i ON i.id=im.interviewer_id WHERE a.status='shortlisted'"); //square brackets to just get the actual data and not the metadata about the fields
     for (const candidate of candidates) {
         if (candidate.status === "shortlisted") {
@@ -12,7 +13,7 @@ router.get('/', async (req, res) => {
     res.json(candidates);
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAdmin, async (req, res) => {
     const candidateId = req.params.id;
     const [candidate] = await db.execute("SELECT a.candidate_id, a.application_number, a.name, a.phone, a.email, a.current_location, a.status,a.skills,a.applied_at,ir.name, jop.title AS job_role, i.name AS interviewer_assigned, c.resume_url, s.session_start AS interview_date FROM application a LEFT JOIN job_opening jop ON a.applied_domain_id = jop.id LEFT JOIN interview_round ir ON a.stage_id = ir.id LEFT JOIN interview_mapping im ON im.application_id = a.id LEFT JOIN interviewer i ON i.id = im.interviewer_id LEFT JOIN interview_session s ON s.mapping_id=im.id LEFT JOIN candidate c on a.candidate_id=c.id WHERE a.candidate_id=?", [candidateId]);
     if (candidate.status === "shortlisted") {
@@ -25,8 +26,8 @@ router.get('/:id', async (req, res) => {
   "mappingId": 42,
   "sessionId": 90
 }*/
-router.post('/candidates/slot-choice/:candidateId', async (req, res) => {
-    const candidateId = parseInt(req.params.candidateId);
+router.post('/candidates/slot-choice', requireAuth, async (req, res) => {
+    const candidateId = req.user.id;
     const { mappingId, sessionId } = req.body;
 
     const conn = await db.getConnection();

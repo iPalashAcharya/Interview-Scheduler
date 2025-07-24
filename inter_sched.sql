@@ -223,3 +223,11 @@ ALTER TABLE candidate DROP COLUMN skills;
 ALTER TABLE application ADD COLUMN skills TEXT;
 
 ALTER TABLE application ADD COLUMN applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+
+AALTER TABLE users MODIFY COLUMN role ENUM('pending', 'Candidate', 'HR', 'Interviewer', 'Admin');
+
+ALTER TABLE users ADD COLUMN profile_icon_url TEXT;
+
+ALTER TABLE users ADD COLUMN requested_role ENUM('Candidate', 'HR', 'Interviewer') NULL;
+
+ALTER TABLE users MODIFY requested_role ENUM('Candidate', 'HR', 'Interviewer', 'Admin') NULL;
