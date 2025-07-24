@@ -22,7 +22,7 @@ router.post('/approve-registration', requireAdmin, async (req, res) => {
             await client.rollback();
             return res.status(404).json({ message: 'User or requested role not found' });
         }
-        const VALID_ROLES = ['Candidate', 'Interviewer', 'HR'];
+        const VALID_ROLES = ['Candidate', 'Interviewer', 'HR', 'Admin'];
         const requested_role = result[0].requested_role;
         if (!VALID_ROLES.includes(requested_role)) {
             await client.rollback();
