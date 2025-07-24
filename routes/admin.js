@@ -17,15 +17,25 @@ router.post('/approve-registration', requireAdmin, async (req, res) => {
     try {
         await client.beginTransaction();
 
-        const [result] = await client.execute(`SELECT requested_role FROM users WHERE id=?`, [userId]);
+        const [result] = await client.execute(`SELECT requested_role,first_name,last_name FROM users WHERE id=?`, [userId]);
         if (result.length === 0 || !result[0].requested_role) {
             await client.rollback();
             return res.status(404).json({ message: 'User or requested role not found' });
         }
+        const VALID_ROLES = ['Candidate', 'Interviewer', 'HR'];
         const requested_role = result[0].requested_role;
+        if (!VALID_ROLES.includes(requested_role)) {
+            await client.rollback();
+            return res.status(400).json({ message: 'Invalid requested role.' });
+        }
 
-        await client.execute(`UPDATE users SET is_active=true,role=? WHERE id=?`, [requested_role, userId]);
-
+        await client.execute(`UPDATE users SET is_active=true,role=?,requested_role=NULL WHERE id=?`, [requested_role, userId]);
+        if (requested_role === "Interviewer") {
+            const interviewerName = `${result[0].first_name || ''} ${result[0].last_name || ''}`.trim();
+            await client.execute(`INSERT INTO interviewer(id,name) VALUES (?,?)`, [userId, interviewerName]);
+        } else if (requested_role === "Candidate") {
+            await client.execute(`INSERT INTO candidate(id) VALUES (?)`, [userId]);
+        }
         await client.commit();
         res.json({ message: 'User approved successfully', userId, newRole: requested_role });
     } catch (error) {
