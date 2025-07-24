@@ -1,6 +1,5 @@
 const mysql = require('mysql2');
 const env = require('dotenv');
-const fs = require('fs');
 
 env.config();
 
@@ -14,7 +13,7 @@ const pool = mysql.createPool({
     connectionLimit: 10,
     queueLimit: 0,
     ssl: {
-        ca: fs.readFileSync(process.env.DB_CA_PATH)
+        ca: Buffer.from(process.env.DB_CA_BASE64, 'base64').toString('utf-8')
     }
 });
 
