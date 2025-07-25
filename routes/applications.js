@@ -12,8 +12,7 @@ router.post('/', requireAdmin, async (req, res) => {
         const [result] = await client.query(`SELECT COUNT(id) FROM application`);
         const applicationNumber = `APP`
 
-        await client.execute(`INSERT INTO application(candidate_id,application_number,job_id,name,email,phone,experience_years,applied_domain_id,stage_id,current_location,status,skills) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, [application.candidate_id,])
-
+        await client.execute(`INSERT INTO application(candidate_id,application_number,job_id,name,email,phone,experience_years,applied_domain_id,stage_id,current_location,status,skills) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, [application.candidate_id,]);
     } catch (error) {
 
     } finally {
