@@ -22,7 +22,7 @@ router.post('/', requireAdmin, async (req, res) => {
 });
 
 router.get('/', requireAdmin, async (req, res) => {
-    const [applications] = await db.execute(`SELECT candidate_id,application_number,name,phone,email,current_location,experience_years,applied_at,skills,jop.title AS job_role, c.resume_url FROM application LEFT JOIN job_opening jop ON application.applied_domain_id=jop.id LEFT JOIN candidate c ON application.candidate_id=c.id WHERE application.status IN ('submitted','under_review')`);
+    const [applications] = await db.execute(`SELECT a.candidate_id,a.application_number,c.name,c.phone,c.email,c.current_country,c.address,experience_years,applied_at,c.skills,jop.title AS job_role, c.resume_url FROM application a LEFT JOIN candidate c ON a.candidate_id=c.id LEFT JOIN job_opening jop ON a.applied_domain_id=jop.id WHERE a.status IN ('submitted','under_review')`);
     res.json(applications);
 });
 
