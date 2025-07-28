@@ -1,23 +1,18 @@
 const express = require("express");
+const db = require('../db');
 const router = express.Router();
 
-let jobs = [
-    {
-        job_id: 1,
-        title: 'Random',
-        domain_id: 'random',
-        required_exp: 0,
-        min_cgpa: 0,
-        status: 'open',
-        created_at: 'Random Timestamp',
+router.get('/', async (req, res) => {
+    try {
+        const [result] = await db.query(`SELECT id,title,description,requirements,domain_id,required_exp_years,min_cgpa,location,employment_type,status,application_deadline,created_at,department,skills_required,remote_option,vacancies_count,qualifications,benefits FROM job_opening WHERE status='open'`);
+        res.json(result);
+    } catch (error) {
+        console.error('Error fetching job openings:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
     }
-]
-
-router.get('/', (req, res) => { //get all the job openings
-    res.json(jobs);
 });
 
-router.post('/', (req, res) => { //post a new job opening
+router.post('/', (req, res) => {
     const job = req.body;
     jobs.push(job);
 });
