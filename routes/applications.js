@@ -1,24 +1,54 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { requireAdmin } = require('../config/passport');
+const { requireAdmin, requireAuth } = require('../config/passport');
 
-router.post('/', requireAdmin, async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
     const application = req.body;
     const client = await db.getConnection();
     try {
         await client.beginTransaction();
 
-        const [result] = await client.query(`SELECT COUNT(id) FROM application`);
-        const applicationNumber = `APP`
+        const [rows] = await client.query(`SELECT id FROM application WHERE candidate_id = ? AND job_id = ?`, [req.user.id, application.jobId]);
 
-        await client.execute(`INSERT INTO application(candidate_id,application_number,job_id,name,email,phone,experience_years,applied_domain_id,stage_id,current_location,status,skills) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, [application.candidate_id,]);
+        if (rows.length > 0) {
+            await client.rollback();
+            return res.status(409).json({
+                error: "You have already applied for this job opening."
+            });
+        }
+        const [jobRow] = await client.query(`SELECT domain_id FROM job_opening WHERE id=?`, [application.jobId]);
+
+        if (!jobRow) {
+            await client.rollback();
+            return res.status(404).json({ error: "Job opening not found." });
+        }
+
+        const appliedDomainId = jobRow.domain_id;
+
+        const [result] = await client.execute(`INSERT INTO application(candidate_id,application_number,job_id,experience_years,applied_domain_id,stage_id,status) VALUES(?,?,?,?,?,?,?)`, [req.user.id, applicationNumber, application.jobId, application.experienceYears, appliedDomainId, 1, 'Submitted']);
+
+        const insertId = result.insertId;
+        const applicationNumber = String(insertId).padStart(4, 0);
+
+        await client.execute(
+            `UPDATE application SET application_number = ? WHERE id = ?`,
+            [applicationNumber, insertId]
+        );
+
+        await client.commit();
+
+        res.status(200).json({
+            message: "Posted Application Successfully",
+            applicationNumber
+        });
     } catch (error) {
-
+        await conn.rollback();
+        console.error("Candidate Application error:", err.message);
+        res.status(409).json({ error: err.message });
     } finally {
         client.release();
     }
-    res.status(201).send("Created application");
 });
 
 router.get('/', requireAdmin, async (req, res) => {

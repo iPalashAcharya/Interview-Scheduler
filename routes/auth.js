@@ -19,7 +19,11 @@ router.post("/register", async (req, res) => {
         }
         const hash = await bcrypt.hash(password, saltRounds);
 
-        const [result2] = await client.execute("INSERT INTO users(email,username,profile_icon_url,password_hash,role,is_active,requested_role) values(?,?,?,?,?,?,?);", [email, email, `/images/default_profile.png`, hash, 'pending', false, role_choice]);
+        let user_role = role_choice.toLowerCase() === "candidate" ? "candidate" : "pending";
+        let is_active = role_choice.toLowerCase() === 'candidate';
+        let status_message = role_choice.toLowerCase === "candidate" ? "User Registered Successfully" : 'User registered successfully — pending approval by admin.';
+
+        const [result2] = await client.execute("INSERT INTO users(email,username,profile_icon_url,password_hash,role,is_active,requested_role) values(?,?,?,?,?,?,?);", [email, email, `/images/default_profile.png`, hash, user_role, is_active, role_choice]);
         const userId = result2.insertId;
 
         const [rows] = await client.execute(`SELECT * FROM users WHERE id=?`, [userId]);
@@ -27,14 +31,29 @@ router.post("/register", async (req, res) => {
 
         await client.commit();
 
-        res.status(201).json({
-            message: 'User registered successfully — pending approval by admin.',
-            user: {
-                id: user.id,
-                email: user.email,
-                role: user.role
-            }
-        });
+        if (user_role === 'candidate') {
+            req.login(user, err => {
+                if (err) return next(err);
+                return res.status(201).json({
+                    message: status_message,
+                    user: {
+                        id: user.id,
+                        email: user.email,
+                        role: user.role
+                    }
+                });
+            });
+        } else {
+            res.status(201).json({
+                message: status_message,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                    requested_role: user.requested_role
+                }
+            });
+        }
     } catch (error) {
         await client.rollback();
         console.error("Error executing query", error.stack);
