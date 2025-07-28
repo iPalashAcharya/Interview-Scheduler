@@ -23,6 +23,37 @@ router.get('/:id', requireAdmin, async (req, res) => {
     }
     res.json(candidate);
 });
+
+router.post('/', requireAuth, async (req, res) => {
+    const candidateDetails = req.body;
+    const client = await db.getConnection();
+    try {
+        await client.beginTransaction();
+
+        const [existRows] = await client.execute(
+            "SELECT id FROM candidate WHERE user_id = ?", [req.user.id]
+        );
+        if (existRows.length > 0) {
+            await client.rollback();
+            return res.status(409).json({ error: "Candidate details already exists for this user." });
+        }
+
+        await client.execute('INSERT INTO candidate(id,name,phone,email,linkedin_url,resume_url,github_url,current_country,address,skills) VALUES(?,?,?,?,?,?,?,?,?,?)', [req.user.id, candidateDetails.name, candidateDetails.phone, candidateDetails.email, candidateDetails.linkedinUrl, candidateDetails.resumeUrl, candidateDetails.githubUrl, candidateDetails.currentCountry, candidateDetails.address, candidateDetails.skills]);
+
+        await client.commit();
+
+        res.json({
+            message: 'Candidate Details saved'
+        });
+    } catch (error) {
+        await client.rollback();
+        console.error("Candidate slot choice error:", error.message);
+        res.status(409).json({ error: error.message });
+    } finally {
+        client.release()
+    }
+});
+
 //request body
 /*{
   "mappingId": 42,

@@ -43,9 +43,9 @@ router.post('/', requireAuth, async (req, res) => {
             applicationNumber
         });
     } catch (error) {
-        await conn.rollback();
-        console.error("Candidate Application error:", err.message);
-        res.status(409).json({ error: err.message });
+        await client.rollback();
+        console.error("Candidate Application error:", error.message);
+        res.status(409).json({ error: error.message });
     } finally {
         client.release();
     }
@@ -62,7 +62,7 @@ router.post('/approve', requireAdmin, async (req, res) => {
     try {
         await conn.beginTransaction();
 
-        await db.execute(`UPDATE application SET status='shortlisted' WHERE candidate_id=?`, [candidateId]);
+        await conn.execute(`UPDATE application SET status='shortlisted' WHERE candidate_id=?`, [candidateId]);
 
         await conn.commit();
 
@@ -72,8 +72,8 @@ router.post('/approve', requireAdmin, async (req, res) => {
 
     } catch (error) {
         await conn.rollback();
-        console.error("Candidate slot choice error:", err.message);
-        res.status(409).json({ error: err.message });
+        console.error("Candidate slot choice error:", error.message);
+        res.status(409).json({ error: error.message });
     } finally {
         conn.release();
     }
