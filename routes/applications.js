@@ -56,6 +56,20 @@ router.get('/', requireAdmin, async (req, res) => {
     res.json(applications);
 });
 
+router.get('/application-form', requireAuth, async (req, res) => {
+    try {
+        const [rows] = await db.execute(`SELECT name,phone,email,linkedin_url,resume_url,github_url,current_country,address,skills FROM candidate WHERE id=?`, [req.user.id]);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: "Candidate profile not found." });
+        }
+        const candidate = rows[0];
+        res.json(candidate);
+    } catch (error) {
+        console.error("Error fetching candidate details:", error.message);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
 router.post('/approve', requireAdmin, async (req, res) => {
     const candidateId = parseInt(req.body.id);
     const conn = await db.getConnection();
