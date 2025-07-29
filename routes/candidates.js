@@ -50,7 +50,28 @@ router.post('/', requireAuth, async (req, res) => {
         console.error("Candidate slot choice error:", error.message);
         res.status(409).json({ error: error.message });
     } finally {
-        client.release()
+        client.release();
+    }
+});
+
+router.get('/profile', requireAuth, async (req, res) => {
+    const client = await db.getConnection();
+    try {
+        const [rows] = await client.execute(
+            `SELECT id, name, phone, email, linkedin_url, resume_url, github_url, current_country, address, skills
+       FROM candidate WHERE id = ?`,
+            [req.user.id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ message: "Candidate details not found." });
+        }
+        res.json(rows[0]);
+    } catch (error) {
+        console.error('Error fetching candidate details:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
+    } finally {
+        client.release();
     }
 });
 

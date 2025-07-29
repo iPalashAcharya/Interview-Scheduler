@@ -3,6 +3,7 @@ const passport = require('passport');
 const bcrypt = require('bcrypt');
 const router = express.Router();
 const db = require('../db');
+const { rateLimitAuth, requireAuth } = require('../config/passport');
 
 const saltRounds = 10;
 
@@ -65,7 +66,22 @@ router.post("/register", async (req, res) => {
     }
 });
 
-router.post('/login', (req, res, next) => {
+router.get('/me', requireAuth, async (req, res) => {
+    const userId = req.user.id;
+    const client = await db.getConnection();
+    try {
+        const [rows] = client.execute(`SELECT id,username,email,role,profile_icon_url,first_name,last_name FROM users WHERE id=?`, [userId]);
+        if (rows.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        res.json({ user: rows[0] });
+    } catch (error) {
+        console.error("Error fetching /me profile:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+router.post('/login', rateLimitAuth, (req, res, next) => {
     passport.authenticate('local', (err, user, info) => {
         if (err) return next(err);
         if (!user) return res.status(401).json({ message: info?.message || 'Login failed' });
