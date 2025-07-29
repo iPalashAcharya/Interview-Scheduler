@@ -1,27 +1,10 @@
 const express = require('express');
+const db = require('../db');
+const { requireAdmin } = require('../config/passport');
 const router = express.Router();
 
-let interviewers = [
-    {
-        id: 1,
-        email: 'random@example.com',
-        name: 'random',
-        phone: 2222222222,
-        domain_expertise_id: 1,
-    }
-]
-
-let timeSlots = [
-    {
-        id: 1,
-        interviewer_id: 1,
-        slot_datetime: 'Random Datetime',
-        is_booked: false,
-    }
-]
-
-router.get('/', (req, res) => {
-    res.json(interviewers);
+router.get('/', requireAdmin, async (req, res) => {
+    const [interviewer] = await db.query("SELECT ")
 });
 
 router.post('/', (req, res) => {

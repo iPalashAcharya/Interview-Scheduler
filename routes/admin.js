@@ -22,7 +22,7 @@ router.post('/approve-registration', requireAdmin, async (req, res) => {
             await client.rollback();
             return res.status(404).json({ message: 'User or requested role not found' });
         }
-        const VALID_ROLES = ['Candidate', 'Interviewer', 'HR', 'Admin'];
+        const VALID_ROLES = ['Interviewer', 'HR', 'Admin'];
         const requested_role = result[0].requested_role;
         if (!VALID_ROLES.includes(requested_role)) {
             await client.rollback();
@@ -33,11 +33,40 @@ router.post('/approve-registration', requireAdmin, async (req, res) => {
         if (requested_role === "Interviewer") {
             const interviewerName = `${result[0].first_name || ''} ${result[0].last_name || ''}`.trim();
             await client.execute(`INSERT INTO interviewer(id,name) VALUES (?,?)`, [userId, interviewerName]);
-        } else if (requested_role === "Candidate") {
-            await client.execute(`INSERT INTO candidate(id) VALUES (?)`, [userId]);
         }
         await client.commit();
         res.json({ message: 'User approved successfully', userId, newRole: requested_role });
+    } catch (error) {
+        await client.rollback();
+        console.error("Error executing query", error.stack);
+        res.status(500).json({ message: "Internal server error during registration approval." });
+    } finally {
+        client.release();
+    }
+});
+
+router.post('/reject-registration', requireAdmin, async (req, res) => {
+    const userId = req.body.id;
+    if (!userId || isNaN(userId)) {
+        return res.status(400).json({ message: 'Valid user ID required' });
+    }
+    if (!userId || isNaN(userId)) {
+        return res.status(400).json({ message: 'Valid user ID required' });
+    }
+    const client = await db.getConnection();
+    try {
+        await client.beginTransaction();
+
+        const [result] = await client.execute(`SELECT id FROM users WHERE id=? AND status='pending'`, [userId]);
+        if (result.length === 0) {
+            await client.rollback();
+            return res.status(404).json({ message: "User not found or not pending." });
+        }
+
+        await client.execute("DELETE FROM users WHERE id=?", [userId]);
+
+        await client.commit();
+        res.status(200).json({ message: "User registration rejected and user deleted." });
     } catch (error) {
         await client.rollback();
         console.error("Error executing query", error.stack);

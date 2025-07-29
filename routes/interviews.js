@@ -92,7 +92,7 @@ router.get('/recommend/:candidateId', requireAdmin, async (req, res) => {
     }
 });
 
-//POST /recommend?candidates=1,2&stage=3
+//POST /recommend
 router.post('/recommend', requireAdmin, async (req, res) => {
     try {
         const candidateIds = req.body.candidates.split(',').map(Number);
