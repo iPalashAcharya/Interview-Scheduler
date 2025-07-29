@@ -15,7 +15,9 @@ router.post("/register", async (req, res) => {
         await client.beginTransaction();
         const [result] = await client.execute('SELECT * FROM users WHERE email=?', [email]);
         if (result.length > 0) {
-            return res.status(400).send("Username already exists, try logging in");
+            return res.status(400).json({
+                message: 'Email Already Exists, Try logging in'
+            });
         }
         const hash = await bcrypt.hash(password, saltRounds);
 
