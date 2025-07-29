@@ -57,7 +57,7 @@ router.post('/reject-registration', requireAdmin, async (req, res) => {
     try {
         await client.beginTransaction();
 
-        const [result] = await client.execute(`SELECT id FROM users WHERE id=? AND status='pending'`, [userId]);
+        const [result] = await client.execute(`SELECT id FROM users WHERE id=? AND role='pending'`, [userId]);
         if (result.length === 0) {
             await client.rollback();
             return res.status(404).json({ message: "User not found or not pending." });
