@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { requireAdmin } = require('../config/passport');
+const { requireAdmin, requireAuth } = require('../config/passport');
 const router = express.Router();
 
 router.get('/', requireAdmin, async (req, res) => {
@@ -8,9 +8,21 @@ router.get('/', requireAdmin, async (req, res) => {
     res.json(interviewers);
 });
 
-router.post('/', requireAdmin, (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
     const interviewer = req.body;
-    interviewers.push(interviewer);
+    const client = await db.getConnection();
+    try {
+        await client.beginTransaction();
+        interviewer.name = `${interviewer.firstName.toLowerCase().charAt(0).toUpperCase() + interviewer.firstName.toLowerCase().slice(1)} ${interviewer.lastName.toLowerCase().charAt(0).toUpperCase() + interviewer.lastName.toLowerCase().slice(1)}`
+        await client.execute(`INSERT INTO interviewer(name,phone) VALUES (?,?) WHERE id=?`, [interviewer.name, interviewer.phone, req.user.id])
+        const [domainRow] = await client.execute(`SELECT id FROM domain WHERE name=?`, [interviewer.domainName.toLowerCase().charAt(0).toUpperCase() + interviewer.domainName.toLowerCase().slice(1)]);
+        await client.execute(`INSERT INTO interviewer_domain(interviewer_id,domain_id,proficiency_level) VALUES(?,?,?)`, [req.user.id, domainRow.id, interviewer.domainProficiencyLevel.toLowerCase()]);
+
+    } catch (error) {
+
+    } finally {
+        client.release();
+    }
 });
 
 router.post('/:id/timeslots', (req, res) => {
