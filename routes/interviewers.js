@@ -13,13 +13,84 @@ router.post('/', requireAuth, async (req, res) => {
     const client = await db.getConnection();
     try {
         await client.beginTransaction();
-        interviewer.name = `${interviewer.firstName.toLowerCase().charAt(0).toUpperCase() + interviewer.firstName.toLowerCase().slice(1)} ${interviewer.lastName.toLowerCase().charAt(0).toUpperCase() + interviewer.lastName.toLowerCase().slice(1)}`
-        await client.execute(`INSERT INTO interviewer(name,phone) VALUES (?,?) WHERE id=?`, [interviewer.name, interviewer.phone, req.user.id])
-        const [domainRow] = await client.execute(`SELECT id FROM domain WHERE name=?`, [interviewer.domainName.toLowerCase().charAt(0).toUpperCase() + interviewer.domainName.toLowerCase().slice(1)]);
-        await client.execute(`INSERT INTO interviewer_domain(interviewer_id,domain_id,proficiency_level) VALUES(?,?,?)`, [req.user.id, domainRow.id, interviewer.domainProficiencyLevel.toLowerCase()]);
-
+        interviewer.name = `${interviewer.firstName.toLowerCase().charAt(0).toUpperCase() + interviewer.firstName.toLowerCase().slice(1)} ${interviewer.lastName.toLowerCase().charAt(0).toUpperCase() + interviewer.lastName.toLowerCase().slice(1)}`;
+        await client.execute(`UPDATE interviewer SET name=?,phone=? WHERE id=?`, [interviewer.name, interviewer.phone, req.user.id]);
+        await client.execute(`DELETE FROM interviewer_domain WHERE interviewer_id = ?`, [req.user.id]);
+        await client.execute(`DELETE FROM interviewer_round WHERE interviewer_id = ?`, [req.user.id]);
+        for (const domain of interviewer.domains) {
+            const [domainRows] = await client.execute(`SELECT id FROM domain WHERE name=?`, [domain]);
+            if (domainRows.length === 0) {
+                await client.rollback();
+                return res.status(400).json({ error: `Domain not found${domain.name}` });
+            }
+            const domainRowId = domainRows[0].id;
+            await client.execute(`INSERT INTO interviewer_domain(interviewer_id,domain_id,proficiency_level) VALUES(?,?,?)`, [req.user.id, domainRowId, domain.proficiencyLevel.toLowerCase()]);
+        }
+        for (const round of interviewer.rounds) {
+            const [roundRows] = await client.execute(`SELECT id FROM interview_round WHERE name=?`, [round]);
+            if (roundRows.length === 0) {
+                await client.rollback();
+                return res.status(400).json({ error: "Domain not found" });
+            }
+            const roundRowId = roundRows[0].id;
+            await client.execute(`INSERT INTO interviewer_round(interviewer_id,round_type_id) VALUES(?,?)`, [req.user.id, roundRowId]);
+        }
+        await client.commit();
+        res.status(201).json({
+            message: 'Interviewer details saved'
+        });
     } catch (error) {
+        await client.rollback();
+        console.error("Candidate slot choice error:", error.message);
+        res.status(409).json({ error: error.message });
+    } finally {
+        client.release();
+    }
+});
 
+router.get('/profile', requireAuth, async (req, res) => {
+    const userId = req.user.id;
+    const client = await db.getConnection();
+
+    try {
+        const [interviewerRows] = await client.execute(
+            `SELECT id, name, phone FROM interviewer WHERE id = ?`,
+            [userId]
+        );
+
+        if (interviewerRows.length === 0) {
+            return res.status(404).json({ error: 'Interviewer profile not found' });
+        }
+        const interviewer = interviewerRows[0];
+
+        const [domainRows] = await client.execute(
+            `SELECT d.name AS domainName, id.proficiency_level AS proficiencyLevel
+       FROM interviewer_domain id 
+       JOIN domain d ON id.domain_id = d.id
+       WHERE id.interviewer_id = ?`,
+            [userId]
+        );
+        const [roundRows] = await client.execute(
+            `SELECT ir.name AS roundType
+       FROM interviewer_round i_r
+       JOIN interview_round ir ON i_r.round_type_id = ir.id
+       WHERE i_r.interviewer_id = ?`,
+            [userId]
+        );
+
+        res.status(200).json({
+            id: interviewer.id,
+            name: interviewer.name,
+            phone: interviewer.phone,
+            domains: domainRows.map(d => ({
+                domainName: d.domainName,
+                proficiencyLevel: d.proficiencyLevel,
+            })),
+            rounds: roundRows.map(r => r.roundType),
+        });
+    } catch (error) {
+        console.error("Error fetching interviewer profile:", error.message);
+        res.status(500).json({ error: "Internal server error" });
     } finally {
         client.release();
     }

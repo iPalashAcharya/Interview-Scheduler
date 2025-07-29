@@ -12,6 +12,7 @@ const interviewRoutes = require('./routes/interviews');
 const timeSlotRoutes = require('./routes/timeSlots');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
+const referenceRoutes = require('./routes/reference');
 
 env.config();
 const app = express();
@@ -60,6 +61,7 @@ app.use('/applications', applicationRoutes);
 app.use('/interviewers', interviewerRoutes);
 app.use('/interviews', interviewRoutes);
 app.use('/timeslots', timeSlotRoutes);
+app.use('/reference', referenceRoutes);
 
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
