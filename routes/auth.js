@@ -70,7 +70,7 @@ router.get('/me', requireAuth, async (req, res) => {
     const userId = req.user.id;
     const client = await db.getConnection();
     try {
-        const [rows] = client.execute(`SELECT id,username,email,role,profile_icon_url,first_name,last_name FROM users WHERE id=?`, [userId]);
+        const [rows] = await client.execute(`SELECT id,username,email,role,profile_icon_url,first_name,last_name FROM users WHERE id=?`, [userId]);
         if (rows.length === 0) {
             return res.status(404).json({ message: "User not found" });
         }
