@@ -4,7 +4,7 @@ This document provides a concise reference for the request body and response for
 
 ---
 
-## 1. GET `/pending-registration`
+## 1. GET `/admin/pending-registration`
 
 - **Request Body:** None
 
@@ -25,7 +25,7 @@ This document provides a concise reference for the request body and response for
 
 ---
 
-## 2. POST `/approve-registration`
+## 2. POST `/admin/approve-registration`
 
 - **Request Body:**
 
@@ -49,7 +49,7 @@ This document provides a concise reference for the request body and response for
 
 ---
 
-## 3. POST `/reject-registration`
+## 3. POST `/admin/reject-registration`
 
 - **Request Body:**
 
