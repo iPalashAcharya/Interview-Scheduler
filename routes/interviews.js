@@ -5,15 +5,6 @@ const db = require('../db');
 const { requireAdmin } = require('../config/passport');
 const API_URL = 'http://localhost:3000'
 
-let interviewMappings = [{
-    id: 1,
-    interviewer_id: 1,
-    candidate_id: 1,
-    slot_id: 1,
-    interview_dateTime: 'random datetime',
-    status: 'scheduled',
-}]
-
 /*router.get('/recommend/:id', async (req, res) => {
     const candidateId = parseInt(req.params.id);
     try {
@@ -395,7 +386,6 @@ router.post("/assign", requireAdmin, async (req, res) => {
         conn.release();
     }
 });
-
 
 router.post('/', (req, res) => {
     const interviewMapping = req.body;

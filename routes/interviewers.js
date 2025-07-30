@@ -96,13 +96,71 @@ router.get('/profile', requireAuth, async (req, res) => {
     }
 });
 
-router.post('/:id/timeslots', (req, res) => {
+router.post('/confirm-session', requireAuth, async (req, res) => {
+    const interviewerId = req.user.id;
+    const { mappingId, sessionId } = req.body;
+    if (req.user.role !== 'Interviewer') {
+        return res.status(403).json({ error: 'Access denied: interviewer only' });
+    }
+    const client = await db.getConnection();
+    try {
+        await client.beginTransaction();
+
+        const [[mapping]] = await client.execute(`
+            SELECT im.id, im.application_id, im.interviewer_id, im.slot_id, im.status
+            FROM interview_mapping im
+            WHERE im.id = ? AND im.interviewer_id = ?
+            FOR UPDATE
+        `, [mappingId, interviewerId]);
+
+        if (!mapping) {
+            throw new Error("Invalid mapping or unauthorized interviewer.");
+        }
+
+        const [[session]] = await client.execute(`
+            SELECT s.id, s.slot_id, s.session_start, s.session_end, ts.slot_status
+            FROM interview_session s
+            JOIN time_slot ts ON ts.id = s.slot_id
+            WHERE s.id = ? AND s.mapping_id = ?
+            FOR UPDATE
+        `, [sessionId, mappingId]);
+
+        if (!session) throw new Error("Session not found for this mapping.");
+        if (session.slot_status !== "tentative") {
+            throw new Error("Session slot is no longer available or not tentative.");
+        }
+
+        await client.execute(`
+            UPDATE interview_mapping
+            SET interviewer_confirmed = TRUE,
+                status = CASE WHEN candidate_confirmed = TRUE THEN 'confirmed' ELSE status END
+            WHERE id = ?
+        `, [mappingId]);
+
+        res.json({
+            message: "Interview session confirmed by interviewer.",
+            session: {
+                sessionId: sessionId,
+                start: session.session_start,
+                end: session.session_end
+            }
+        });
+    } catch (error) {
+        await client.rollback();
+        console.error("Interviewer session confirmation error:", err.message);
+        res.status(409).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+/*router.post('/timeslots', (req, res) => {
     const interviewerId = req.params.id;
     let timeSlot = req.body;
     timeSlot.interviewer_id = interviewerId;
     timeSlots.push(timeSlot);
     res.status(201).send("Created availaibility time slot");
-});
+});*/
 
 router.get('/:id/timeslots', (req, res) => {
     const interviewerId = req.params.id;
