@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { parseISO, isValid } = require('date-fns');
+const { requireAuth } = require('../config/passport');
 const router = express.Router();
 
 function isValidDate(dateString) {
