@@ -118,15 +118,14 @@ router.post('/confirm-session', requireAuth, async (req, res) => {
         }
 
         const [[session]] = await client.execute(`
-            SELECT s.id, s.slot_id, s.session_start, s.session_end, ts.slot_status
+            SELECT s.id, s.slot_id, s.session_start, s.session_end, s.status
             FROM interview_session s
-            JOIN time_slot ts ON ts.id = s.slot_id
             WHERE s.id = ? AND s.mapping_id = ?
             FOR UPDATE
         `, [sessionId, mappingId]);
 
         if (!session) throw new Error("Session not found for this mapping.");
-        if (session.slot_status !== "tentative") {
+        if (session.slot_status !== "tentative" && session.status !== "booked") {
             throw new Error("Session slot is no longer available or not tentative.");
         }
 
@@ -136,6 +135,13 @@ router.post('/confirm-session', requireAuth, async (req, res) => {
                 status = CASE WHEN candidate_confirmed = TRUE THEN 'confirmed' ELSE status END
             WHERE id = ?
         `, [mappingId]);
+
+        await conn.execute(`UPDATE application
+        SET status = 'interview_scheduled'
+        WHERE id = (SELECT application_id FROM interview_mapping WHERE id = ?)
+        AND EXISTS (SELECT 1 FROM interview_mapping WHERE id = ? AND candidate_confirmed = TRUE AND interviewer_confirmed = TRUE);`, [mappingId, mappingId]);
+
+        await client.commit();
 
         res.json({
             message: "Interview session confirmed by interviewer.",

@@ -101,9 +101,8 @@ router.post('/candidates/slot-choice', requireAuth, async (req, res) => {
         }
 
         const [[session]] = await conn.execute(`
-        SELECT s.id, s.slot_id, s.session_start, s.session_end, ts.slot_status
+        SELECT s.id, s.slot_id, s.session_start, s.session_end, s.status
         FROM interview_session s
-        JOIN time_slot ts ON ts.id = s.slot_id
         WHERE s.id = ? AND s.mapping_id = ?
         FOR UPDATE
         `, [sessionId, mappingId]);
@@ -126,15 +125,23 @@ router.post('/candidates/slot-choice', requireAuth, async (req, res) => {
         ]);
 
         await conn.execute(`
-        UPDATE interview_mapping
-        SET status = 'confirmed', candidate_confirmed = TRUE
-        WHERE id = ?
+            UPDATE interview_mapping
+            SET candidate_confirmed = TRUE,
+                status = CASE WHEN interviewer_confirmed = TRUE THEN 'confirmed' ELSE status END
+            WHERE id = ?
         `, [mappingId]);
 
-        // 4. Mark time slot as booked
+        // 4. Mark time session as booked
         await conn.execute(`
-        UPDATE time_slot SET slot_status = 'booked' WHERE id = ?
-        `, [session.slot_id]);
+            UPDATE interview_session
+            SET status = 'booked'
+            WHERE id = ?
+        `, [sessionId]);
+
+        await conn.execute(`UPDATE application
+        SET status = 'interview_scheduled'
+        WHERE id = (SELECT application_id FROM interview_mapping WHERE id = ?)
+        AND EXISTS (SELECT 1 FROM interview_mapping WHERE id = ? AND candidate_confirmed = TRUE AND interviewer_confirmed = TRUE);`, [mappingId, mappingId]);
 
         await conn.commit();
 

@@ -16,7 +16,7 @@ router.get('/:id', requireAuth, async (req, res) => {
     }
     const client = await db.getConnection();
     try {
-        const [result] = await client.execute(`SELECT user_id,slot_start,slot_end,is_booked,slot_status FROM time_slot WHERE user_id = ?`, [userId]);
+        const [result] = await client.execute(`SELECT user_id,slot_start,slot_end FROM time_slot WHERE user_id = ?`, [userId]);
         if (result.length === 0) {
             res.json({
                 message: `No time slots for the user id:${userId}`
@@ -43,7 +43,7 @@ router.get('/:id/:date', requireAuth, async (req, res) => {
     const client = await db.getConnection();
     try {
         const [timeslots] = await client.execute(
-            `SELECT user_id, slot_start, slot_end, is_booked, slot_status 
+            `SELECT user_id, slot_start, slot_end
              FROM time_slot 
              WHERE user_id = ? 
              AND DATE(slot_start) = ? 
@@ -79,7 +79,7 @@ router.post('/', requireAuth, async (req, res) => {
     try {
         await client.beginTransaction();
 
-        await client.execute(`INSERT INTO time_slot(user_id,slot_start,slot_end,is_booked,slot_status) VALUES(?,?,?,false,'free')`, [userId, slotStart, slotEnd]);
+        await client.execute(`INSERT INTO time_slot(user_id,slot_start,slot_end) VALUES(?,?,?)`, [userId, slotStart, slotEnd]);
 
         await client.commit();
         res.status(201).json({ message: "Timeslot created successfully." });

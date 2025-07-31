@@ -119,15 +119,14 @@ router.post('/recommend', requireAdmin, async (req, res) => {
 
         const [interviewers] = await db.execute(`
         SELECT i.id, i.name,
-            SUM(
-                FLOOR(
-                    TIMESTAMPDIFF(MINUTE, ts.slot_start, ts.slot_end) / ?
-            )
-            ) AS available_sessions
+            COUNT(s.id) AS available_sessions
         FROM interviewer i
         JOIN interviewer_domain d ON d.interviewer_id = i.id AND d.domain_id =?
             JOIN interviewer_round  r ON r.interviewer_id = i.id AND r.round_type_id =?
-                JOIN time_slot ts ON ts.user_id = i.id AND ts.slot_status = 'free'
+            LEFT JOIN interview_session s
+                ON s.interviewer_id = i.id
+               AND s.status = 'free'
+               AND TIMESTAMPDIFF(MINUTE, s.session_start, s.session_end) >= ?
         WHERE NOT EXISTS(
                     SELECT 1 FROM interview_mapping im
             WHERE im.interviewer_id = i.id
@@ -136,7 +135,7 @@ router.post('/recommend', requireAdmin, async (req, res) => {
         GROUP BY i.id
         ORDER BY available_sessions DESC
         LIMIT 5;
-        `, [interviewWithBuffer, domain, round]);
+        `, [domain, round, interviewWithBuffer,]);
         let assignableInterviewers = [];
         let remainingCandidates = candidateNumber;
 
@@ -298,43 +297,46 @@ router.post("/assign", requireAdmin, async (req, res) => {
             if (candidateQueue.length === 0) {
                 throw new Error(`No candidates provided`);
             }
-            const [slots] = await conn.execute(
-                `SELECT id, slot_start, slot_end
-            FROM time_slot
-            WHERE user_id = ? AND slot_status = 'free'
-            ORDER BY slot_start
-            FOR UPDATE`,
+            const [sessions] = await conn.execute(
+                `SELECT s.id AS session_id, s.slot_id, s.session_start, s.session_end, ts.slot_start AS slot_start, ts.slot_end AS slot_end
+                   FROM interview_session s
+                   JOIN time_slot ts ON ts.id = s.slot_id
+                  WHERE s.interviewer_id = ?
+                    AND s.status = 'free'
+                  ORDER BY s.session_start
+                  FOR UPDATE`,
                 [interviewerId]
             );
 
-            let sessions = [];
-            for (const slot of slots) {
-                let cursor = new Date(slot.slot_start);
-                const end = new Date(slot.slot_end);
+            let candidateSessions = [];
+            for (const session of sessions) {
+                let cursor = new Date(session.session_start);
+                const end = new Date(session.session_end);
 
 
                 //continue assigning timeslots to candidates until the timeslot still has time
                 while (cursor.getTime() + sessionLength * 60000 <= end.getTime()) {
-                    sessions.push({
-                        slotId: slot.id,
+                    candidateSessions.push({
+                        slotId: session.slot_id,
+                        sessionId: session.id,
                         start: new Date(cursor),
                         end: new Date(cursor.getTime() + duration * 60000),
                     });
                     cursor = new Date(cursor.getTime() + sessionLength * 60000);
-                    if (sessions.length >= capacity) break; //timeslot full
+                    if (candidateSessions.length >= capacity) break; //timeslot full
                 }
-                if (sessions.length >= capacity) break; //extra check
+                if (candidateSessions.length >= capacity) break; //extra check
             }
 
-            if (sessions.length < capacity && sessions.length < candidateQueue.length) {
+            if (candidateSessions.length < capacity && candidateSessions.length < candidateQueue.length) {
                 throw new Error(
                     `Not enough available sessions for interviewer ${interviewerId}`
                 );
             }
 
-            for (let i = 0; i < sessions.length && candidateQueue.length > 0; i++) {
+            for (let i = 0; i < candidateSessions.length && candidateQueue.length > 0; i++) {
                 const candidateId = candidateQueue.shift();
-                const session = sessions[i];
+                const assignedSession = candidateSessions[i];
 
                 const [[appRow]] = await conn.execute(
                     `SELECT id FROM application WHERE candidate_id = ? AND stage_id = ? LIMIT 1`,
@@ -346,25 +348,19 @@ router.post("/assign", requireAdmin, async (req, res) => {
                     `INSERT INTO interview_mapping
             (application_id, interviewer_id, slot_id, round_id, status)
         VALUES(?, ?, ?, ?, 'scheduled')`,
-                    [appRow.id, interviewerId, session.slotId, stageId]
+                    [appRow.id, interviewerId, assignedSession.slotId, stageId]
                 );
 
                 await conn.execute(
-                    `UPDATE time_slot SET slot_status = 'tentative' WHERE id = ? `,
-                    [session.slotId]
+                    `UPDATE interview_session SET status = 'tentative', mapping_id = ? WHERE id = ?`,
+                    [interviewMapping.insertId, assignedSession.sessionId]
                 );
-
-                await conn.execute(
-                    `INSERT INTO interview_session
-            (slot_id, mapping_id, session_start, session_end)
-        VALUES(?, ?, ?, ?)`,
-                    [session.slotId, interviewMapping.insertId, session.start, session.end]);
                 assignments.push({
                     candidateId,
                     interviewerId,
-                    slotId: session.slotId,
-                    session_start: session.start,
-                    session_end: session.end,
+                    slotId: assignedSession.slotId,
+                    session_start: assignedSession.start,
+                    session_end: assignedSession.end,
                 });
             }
         }
