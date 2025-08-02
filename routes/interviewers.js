@@ -123,8 +123,8 @@ router.get('/mappings/:id', requireAuth, async (req, res) => {
 });
 
 
-router.post('/confirm-session/:id', requireAuth, async (req, res) => {
-    const interviewerId = req.params.id;
+router.post('/confirm-session', requireAuth, async (req, res) => {
+    const interviewerId = req.user.id;
     const { mappingId, sessionId } = req.body;
 
     const client = await db.getConnection();

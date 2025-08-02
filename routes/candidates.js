@@ -76,7 +76,7 @@ router.get('/profile', requireAuth, async (req, res) => {
 });
 
 router.get('/:candidateId/available-sessions', requireAuth, async (req, res) => {
-    const candidateId = req.params.candidateId;
+    const candidateId = req.user.id;
 
     try {
         // Get all mappings for this candidate that haven't been confirmed yet
@@ -136,8 +136,8 @@ router.get('/:candidateId/available-sessions', requireAuth, async (req, res) => 
         res.status(500).json({ error: 'Internal server error' });
     }
 });
-router.post('/slot-choice/:id', requireAuth, async (req, res) => {
-    const candidateId = req.params.id;
+router.post('/slot-choice', requireAuth, async (req, res) => {
+    const candidateId = req.user.id;
     const { mappingId, sessionId } = req.body;
     const conn = await db.getConnection();
 
