@@ -31,7 +31,7 @@ router.post('/', requireAuth, async (req, res) => {
         await client.beginTransaction();
 
         const [existRows] = await client.execute(
-            "SELECT id FROM candidate WHERE user_id = ?", [req.user.id]
+            "SELECT id FROM candidate WHERE id = ?", [req.user.id]
         );
         if (existRows.length > 0) {
             await client.rollback();
@@ -47,7 +47,7 @@ router.post('/', requireAuth, async (req, res) => {
         });
     } catch (error) {
         await client.rollback();
-        console.error("Candidate slot choice error:", error.message);
+        console.error("Candidate upload details error:", error.message);
         res.status(409).json({ error: error.message });
     } finally {
         client.release();
@@ -75,47 +75,109 @@ router.get('/profile', requireAuth, async (req, res) => {
     }
 });
 
-//request body
-/*{
-  "mappingId": 42,
-  "sessionId": 90
-}*/
-router.post('/candidates/slot-choice', requireAuth, async (req, res) => {
-    const candidateId = req.user.id;
-    const { mappingId, sessionId } = req.body;
+router.get('/:candidateId/available-sessions', requireAuth, async (req, res) => {
+    const candidateId = req.params.candidateId;
 
+    try {
+        // Get all mappings for this candidate that haven't been confirmed yet
+        const [mappings] = await db.execute(
+            `SELECT im.id as mapping_id, im.interviewer_id, i.name as interviewer_name,
+                    im.status as mapping_status, im.candidate_confirmed
+             FROM interview_mapping im
+             JOIN application a ON a.id = im.application_id
+             JOIN interviewer i ON i.id = im.interviewer_id
+             WHERE a.candidate_id = ? AND im.status = 'scheduled' AND im.candidate_confirmed = FALSE`,
+            [candidateId]
+        );
+
+        const availableOptions = [];
+
+        for (const mapping of mappings) {
+            // Get available free sessions for this interviewer
+            const [slots] = await db.execute(
+                `SELECT id, slot_start, slot_end
+                 FROM time_slot
+                 WHERE user_id = ? AND is_active = TRUE AND slot_end > NOW()
+                 ORDER BY slot_start`,
+                [mapping.interviewer_id]
+            );
+
+            let allFreeSessions = [];
+            for (const slot of slots) {
+                const [sessions] = await db.execute(
+                    `SELECT id AS session_id, slot_id, session_start, session_end
+                     FROM interview_session
+                     WHERE slot_id = ?
+                       AND status = 'free'  
+                       AND mapping_id IS NULL
+                     ORDER BY session_start`,
+                    [slot.id]
+                );
+                allFreeSessions.push(...sessions);
+            }
+
+            // Sort by session_start and limit to reasonable number
+            allFreeSessions.sort((a, b) => new Date(a.session_start) - new Date(b.session_start));
+            const availableSessions = allFreeSessions.slice(0, 8); // Show up to 8 options
+
+            if (availableSessions.length > 0) {
+                availableOptions.push({
+                    mappingId: mapping.mapping_id,
+                    interviewerId: mapping.interviewer_id,
+                    interviewerName: mapping.interviewer_name,
+                    availableSessions: availableSessions
+                });
+            }
+        }
+
+        res.json({ candidateId, availableOptions });
+    } catch (error) {
+        console.error('Error fetching available sessions:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+router.post('/slot-choice/:id', requireAuth, async (req, res) => {
+    const candidateId = req.params.id;
+    const { mappingId, sessionId } = req.body;
     const conn = await db.getConnection();
+
     try {
         await conn.beginTransaction();
 
         // 1. Verify mapping exists AND belongs to candidate
         const [[mapping]] = await conn.execute(`
-        SELECT im.id, im.interviewer_id, im.slot_id, a.candidate_id
-        FROM interview_mapping im
-        JOIN application a ON a.id = im.application_id
-        WHERE im.id = ? AND a.candidate_id = ?
+            SELECT im.id, im.interviewer_id, im.slot_id, a.candidate_id
+            FROM interview_mapping im
+            JOIN application a ON a.id = im.application_id
+            WHERE im.id = ? AND a.candidate_id = ? AND im.candidate_confirmed = FALSE
+            FOR UPDATE
         `, [mappingId, candidateId]);
 
         if (!mapping) {
-            throw new Error("Invalid mapping or unauthorized candidate.");
+            throw new Error("Invalid mapping, unauthorized candidate, or already confirmed.");
         }
 
+        // 2. Verify session exists and is available
         const [[session]] = await conn.execute(`
-        SELECT s.id, s.slot_id, s.session_start, s.session_end, s.status
-        FROM interview_session s
-        WHERE s.id = ? AND s.mapping_id = ?
-        FOR UPDATE
-        `, [sessionId, mappingId]);
+            SELECT s.id, s.slot_id, s.session_start, s.session_end, s.status, s.mapping_id
+            FROM interview_session s
+            WHERE s.id = ?
+            FOR UPDATE
+        `, [sessionId]);
 
-        if (!session) throw new Error("Selected session not found.");
-        if (session.slot_status !== "tentative") {
-            throw new Error("Session slot is no longer available.");
+        if (!session) {
+            throw new Error("Session not found.");
         }
 
+        if (session.status !== 'free' || session.mapping_id !== null) {
+            throw new Error("This time slot is no longer available. Please choose another slot.");
+        }
+
+        // 3. Record candidate's choice (audit)
         await conn.execute(`
-        INSERT INTO candidate_slot_choice
-        (mapping_id, candidate_id, slot_id, session_start, session_end)
-        VALUES (?, ?, ?, ?, ?)
+            INSERT INTO candidate_slot_choice
+            (mapping_id, candidate_id, slot_id, session_start, session_end)
+            VALUES (?, ?, ?, ?, ?)
         `, [
             mappingId,
             candidateId,
@@ -124,33 +186,42 @@ router.post('/candidates/slot-choice', requireAuth, async (req, res) => {
             session.session_end,
         ]);
 
-        await conn.execute(`
-            UPDATE interview_mapping
-            SET candidate_confirmed = TRUE,
-                status = CASE WHEN interviewer_confirmed = TRUE THEN 'confirmed' ELSE status END
-            WHERE id = ?
-        `, [mappingId]);
-
-        // 4. Mark time session as booked
+        // 4. Book the session for this candidate
         await conn.execute(`
             UPDATE interview_session
-            SET status = 'booked'
-            WHERE id = ?
-        `, [sessionId]);
+            SET status = 'booked', mapping_id = ?
+            WHERE id = ? AND status = 'free' AND mapping_id IS NULL
+        `, [mappingId, sessionId]);
 
-        await conn.execute(`UPDATE application
-        SET status = 'interview_scheduled'
-        WHERE id = (SELECT application_id FROM interview_mapping WHERE id = ?)
-        AND EXISTS (SELECT 1 FROM interview_mapping WHERE id = ? AND candidate_confirmed = TRUE AND interviewer_confirmed = TRUE);`, [mappingId, mappingId]);
+        // 5. Update the mapping's slot_id to match the chosen session
+        await conn.execute(`
+            UPDATE interview_mapping
+            SET slot_id = ?, candidate_confirmed = TRUE,
+                status = CASE WHEN interviewer_confirmed = TRUE THEN 'confirmed' ELSE 'scheduled' END
+            WHERE id = ?
+        `, [session.slot_id, mappingId]);
+
+        // 6. Update application status if both candidate and interviewer confirmed
+        await conn.execute(`
+            UPDATE application
+            SET status = 'interview_scheduled'
+            WHERE id = (
+                SELECT application_id FROM interview_mapping WHERE id = ?
+            )
+            AND EXISTS (
+                SELECT 1 FROM interview_mapping
+                WHERE id = ? AND candidate_confirmed = TRUE AND interviewer_confirmed = TRUE
+            )
+        `, [mappingId, mappingId]);
 
         await conn.commit();
-
         res.json({
-            message: 'Session confirmed. Interview scheduled.',
+            message: 'Session confirmed. Waiting for interviewer confirmation.',
             session: {
                 sessionId: sessionId,
                 start: session.session_start,
-                end: session.session_end
+                end: session.session_end,
+                status: "booked"
             }
         });
     } catch (err) {
@@ -161,7 +232,6 @@ router.post('/candidates/slot-choice', requireAuth, async (req, res) => {
         conn.release();
     }
 });
-
 
 /*router.put('/:id/status', (req, res) => {
     const candidateId = req.params.id;

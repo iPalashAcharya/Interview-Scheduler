@@ -96,12 +96,37 @@ router.get('/profile', requireAuth, async (req, res) => {
     }
 });
 
-router.post('/confirm-session', requireAuth, async (req, res) => {
-    const interviewerId = req.user.id;
-    const { mappingId, sessionId } = req.body;
-    if (req.user.role !== 'Interviewer') {
+router.get('/mappings/:id', requireAuth, async (req, res) => {
+    /*if (req.user.role !== 'Interviewer') {
         return res.status(403).json({ error: 'Access denied: interviewer only' });
+    }*/
+    const interviewerId = req.params.id;
+
+    const client = await db.getConnection();
+    try {
+        const [rows] = await db.execute(
+            `SELECT m.id as mappingId, a.candidate_id, s.id as sessionId, s.session_start, s.session_end, s.status, m.status as mappingStatus
+      FROM interview_mapping m
+      JOIN application a ON m.application_id = a.id
+      JOIN interview_session s ON s.mapping_id = m.id
+      WHERE m.interviewer_id = ?
+      ORDER BY s.session_start`,
+            [interviewerId]
+        );
+        res.json(rows);
+    } catch (error) {
+        console.error("Error fetching interviewer mappings:", error.message);
+        res.status(500).json({ error: "Internal server error" });
+    } finally {
+        client.release();
     }
+});
+
+
+router.post('/confirm-session/:id', requireAuth, async (req, res) => {
+    const interviewerId = req.params.id;
+    const { mappingId, sessionId } = req.body;
+
     const client = await db.getConnection();
     try {
         await client.beginTransaction();
@@ -124,9 +149,12 @@ router.post('/confirm-session', requireAuth, async (req, res) => {
             FOR UPDATE
         `, [sessionId, mappingId]);
 
-        if (!session) throw new Error("Session not found for this mapping.");
-        if (session.slot_status !== "tentative" && session.status !== "booked") {
-            throw new Error("Session slot is no longer available or not tentative.");
+        if (!session) {
+            throw new Error("Session not found for this mapping.");
+        }
+
+        if (session.status !== "booked") {
+            throw new Error("Session is not in a confirmable state.");
         }
 
         await client.execute(`
@@ -136,25 +164,29 @@ router.post('/confirm-session', requireAuth, async (req, res) => {
             WHERE id = ?
         `, [mappingId]);
 
-        await conn.execute(`UPDATE application
-        SET status = 'interview_scheduled'
-        WHERE id = (SELECT application_id FROM interview_mapping WHERE id = ?)
-        AND EXISTS (SELECT 1 FROM interview_mapping WHERE id = ? AND candidate_confirmed = TRUE AND interviewer_confirmed = TRUE);`, [mappingId, mappingId]);
+        // Session is already booked, no need to update it again
+
+        await client.execute(`
+            UPDATE application
+            SET status = 'interview_scheduled'
+            WHERE id = (SELECT application_id FROM interview_mapping WHERE id = ?)
+            AND EXISTS (SELECT 1 FROM interview_mapping WHERE id = ? AND candidate_confirmed = TRUE AND interviewer_confirmed = TRUE)
+        `, [mappingId, mappingId]);
 
         await client.commit();
-
         res.json({
             message: "Interview session confirmed by interviewer.",
             session: {
                 sessionId: sessionId,
                 start: session.session_start,
-                end: session.session_end
+                end: session.session_end,
+                status: "booked"
             }
         });
     } catch (error) {
         await client.rollback();
-        console.error("Interviewer session confirmation error:", err.message);
-        res.status(409).json({ error: err.message });
+        console.error("Interviewer session confirmation error:", error.message);
+        res.status(409).json({ error: error.message });
     } finally {
         client.release();
     }

@@ -13,6 +13,7 @@ const timeSlotRoutes = require('./routes/timeSlots');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const referenceRoutes = require('./routes/reference');
+require('./utils/cleanupScheduler');
 
 env.config();
 const app = express();
